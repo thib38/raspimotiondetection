@@ -11,6 +11,7 @@ import numpy as np
 import datetime
 import zmq
 import pickle
+import ipaddress
 print(sys.version_info)
 # set-up logger before anything - two  handlers : one on console, the other one on file
 formatter = \
@@ -29,9 +30,41 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # A D A P T   LOGGING LEVEL        H E R E
 # logger.addHandler(handler_file)
 logger.addHandler(handler_console)
-context = zmq.Context()
-socket = context.socket(zmq.REQ)
-socket.connect("tcp://192.168.1.36:5555")
+
+class SendPictureToCentral:
+
+    def __init__(self, host="192.168.1.36", port="5555"):
+        # Valid IPV4 address
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            logger.error("%s is not valid IP address", host)
+            raise Exception
+        # valid TCP port value
+        if type(port) != str:
+            logger.error("%s is not a character string", str(port))
+            raise Exception
+        elif (int(port) > 49152) or (int(port) < 1000):
+            logger.error("%s port value must be in 1000 to 49152 range", str(port))
+            raise Exception
+
+
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.REQ)
+        #TODO add code to handle fo server not present
+        # self.socket.connect("tcp://192.168.1.36:5555")
+        self.socket.conn ect("tcp://" + host + ":"  + port)
+        return
+
+    def send_numpy_bgr(self,image_numpy_bgr):
+
+        serialized = pickle.dumps(image_numpy_bgr)
+        self.socket.send(serialized)
+
+        message = self.socket.recv()
+
+        return message
+
 
 
 def handle_uncaugth_exception(*exc_info):
@@ -56,13 +89,15 @@ def handle_frame(image_in_numpy_bgr_format, time_stamp_string):
     print(time_stamp_string)
     cv2.imwrite(cwd + "/" + time_stamp_string + ".jpg", image_in_numpy_bgr_format)
 
-    print("Sending request %s …" % time_stamp_string)
-    serialized = pickle.dumps(image_in_numpy_bgr_format)
-    socket.send(serialized)
-
-    #  Get the reply.
-    message = socket.recv()
-    print("Received reply %s [ %s ]" % (time_stamp_string, message))
+    message = send_over_lan.send_numpy_bgr(image_in_numpy_bgr_format)
+    # print("Sending request %s …" % time_stamp_string)
+    # serialized = pickle.dumps(image_in_numpy_bgr_format)
+    # socket.send(serialized)
+    #
+    # #  Get the reply.
+    # message = socket.recv()
+    # print("Received reply %s [ %s ]" % (time_stamp_string, message))
+    print("Received reply %s" % message)
 
 CAMERA_WARMUP_TIME = 2.5  # seconds
 RESOLUTION = (640,480)
@@ -70,6 +105,8 @@ FPS = 16
 MIN_AREA = 5000
 DELTA_THRESHOLD = 5
 
+
+send_over_lan = SendPictureToCentral()
 
 # camera = PiCamera()
 with PiCamera() as camera:
