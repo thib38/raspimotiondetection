@@ -48,22 +48,81 @@ class SendPictureToCentral:
             logger.error("%s port value must be in 1000 to 49152 range", str(port))
             raise Exception
 
+        self.request_time_out = 2500
+        self.request_retries = 3
+        self.server_endpoint = "tcp://" + host + ":"  + port
 
         self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REQ)
-        #TODO add code to handle fo server not present
-        # self.socket.connect("tcp://192.168.1.36:5555")
-        self.socket.conn ect("tcp://" + host + ":"  + port)
+
+        self.client = self.context.socket(zmq.REQ)
+        self.client.connect(self.server_endpoint)
+
+        self.poll = zmq.Poller()
+        self.poll.register(self.client, zmq.POLLIN)
+
+        self.connection_dropped = False
+
         return
 
     def send_numpy_bgr(self,image_numpy_bgr):
+        """
+        send serialized with pickle image to server
+        embedded retries mechanism in case of network issue
+
+        :param image_numpy_bgr: variable name is self explanatory
+        :return: True if sending OK False otherwise
+        """
 
         serialized = pickle.dumps(image_numpy_bgr)
-        self.socket.send(serialized)
+        # TODO replace pickle with JSON as pickle is unsafe
 
-        message = self.socket.recv()
+        # reopen connection if last call left it dropped
+        if self.connection_dropped:
+            self.client = self.context.socket(zmq.REQ)
+            self.client.connect(self.server_endpoint)
+            self.poll.register(self.client, zmq.POLLIN)
+            self.connection_dropped = False
 
-        return message
+        rc = True
+        sequence = 0
+        retries_left = self.request_retries
+        while retries_left:
+            sequence += 1
+            self.client.send(serialized)
+
+            expect_reply = True
+            while expect_reply:
+                socks = dict(self.poll.poll(self.request_time_out))
+                if socks.get(self.client) == zmq.POLLIN:
+                    reply = self.client.recv()
+                    if not reply:
+                        break
+                    if reply.decode('utf-8') == "OK":
+                        retries_left = 0
+                        expect_reply = False
+                    else:
+                        logger.warning("malformed response %s from server", str(reply))
+                        # shouldn't we abandon ?
+                else:
+                    logger.warning("no response from server, retrying...")
+                    # socket migth be confused - close and remove
+                    self.client.setsockopt(zmq.LINGER, 0)
+                    self.client.close()
+                    self.poll.unregister(self.client)
+                    retries_left -= 1
+                    if retries_left == 0:
+                        logger.error("Server seems to be offline, abandoning")
+                        self.connection_dropped = True
+                        rc = False
+                        break
+                    logger.warning("Reconnecting and resending")
+                    #create new connection
+                    self.client = self.context.socket(zmq.REQ)
+                    self.client.connect(self.server_endpoint)
+                    self.poll.register(self.client, zmq.POLLIN)
+                    self.client.send(serialized)
+
+        return rc
 
 
 
@@ -84,20 +143,10 @@ sys.excepthook = handle_uncaugth_exception  # reassign so that log is fed with p
 
 def handle_frame(image_in_numpy_bgr_format, time_stamp_string):
 
-    cwd = os.getcwd()
-    print(cwd)
-    print(time_stamp_string)
-    cv2.imwrite(cwd + "/" + time_stamp_string + ".jpg", image_in_numpy_bgr_format)
-
-    message = send_over_lan.send_numpy_bgr(image_in_numpy_bgr_format)
-    # print("Sending request %s …" % time_stamp_string)
-    # serialized = pickle.dumps(image_in_numpy_bgr_format)
-    # socket.send(serialized)
-    #
-    # #  Get the reply.
-    # message = socket.recv()
-    # print("Received reply %s [ %s ]" % (time_stamp_string, message))
-    print("Received reply %s" % message)
+    if not send_over_lan.send_numpy_bgr(image_in_numpy_bgr_format):
+        logger.warning("LAN connection not working / switching to local storage")
+        cwd = os.getcwd()
+        cv2.imwrite(cwd + "/" + time_stamp_string + ".jpg", image_in_numpy_bgr_format)
 
 CAMERA_WARMUP_TIME = 2.5  # seconds
 RESOLUTION = (640,480)
