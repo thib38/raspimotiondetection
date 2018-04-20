@@ -9,6 +9,8 @@ import imutils
 import logging
 import numpy as np
 import datetime
+import zmq
+import pickle
 print(sys.version_info)
 # set-up logger before anything - two  handlers : one on console, the other one on file
 formatter = \
@@ -27,6 +29,11 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # A D A P T   LOGGING LEVEL        H E R E
 # logger.addHandler(handler_file)
 logger.addHandler(handler_console)
+context = zmq.Context()
+socket = context.socket(zmq.REQ)
+socket.connect("tcp://192.168.1.36:5555")
+
+
 def handle_uncaugth_exception(*exc_info):
     """
     This function will be subsituted to sys.except_hook standard function that is raised when ecxeptions are raised and
@@ -48,6 +55,14 @@ def handle_frame(image_in_numpy_bgr_format, time_stamp_string):
     print(cwd)
     print(time_stamp_string)
     cv2.imwrite(cwd + "/" + time_stamp_string + ".jpg", image_in_numpy_bgr_format)
+
+    print("Sending request %s …" % time_stamp_string)
+    serialized = pickle.dumps(image_in_numpy_bgr_format)
+    socket.send(serialized)
+
+    #  Get the reply.
+    message = socket.recv()
+    print("Received reply %s [ %s ]" % (time_stamp_string, message))
 
 CAMERA_WARMUP_TIME = 2.5  # seconds
 RESOLUTION = (640,480)
