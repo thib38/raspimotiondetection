@@ -33,7 +33,7 @@ logger.addHandler(handler_console)
 
 class SendPictureToCentral:
 
-    def __init__(self, host="192.168.1.36", port="5555"):
+    def __init__(self, camera_id, host="192.168.1.36", port="5555"):
         # Valid IPV4 address
         try:
             ipaddress.ip_address(host)
@@ -48,6 +48,7 @@ class SendPictureToCentral:
             logger.error("%s port value must be in 1000 to 49152 range", str(port))
             raise Exception
 
+        self.camera_id = camera_id
         self.request_time_out = 2500
         self.request_retries = 3
         self.server_endpoint = "tcp://" + host + ":"  + port
@@ -74,6 +75,7 @@ class SendPictureToCentral:
         """
 
         serialized = pickle.dumps(image_numpy_bgr)
+        message = [bytes(self.camera_id), serialized]
         # TODO replace pickle with JSON as pickle is unsafe
 
         # reopen connection if last call left it dropped
@@ -88,7 +90,7 @@ class SendPictureToCentral:
         retries_left = self.request_retries
         while retries_left:
             sequence += 1
-            self.client.send(serialized)
+            self.client.send_multipart(message)
 
             expect_reply = True
             while expect_reply:
@@ -97,7 +99,7 @@ class SendPictureToCentral:
                     reply = self.client.recv()
                     if not reply:
                         break
-                    if reply.decode('utf-8') == "OK":
+                    if reply.decode('utf-8') == "ack":
                         retries_left = 0
                         expect_reply = False
                     else:
@@ -120,7 +122,7 @@ class SendPictureToCentral:
                     self.client = self.context.socket(zmq.REQ)
                     self.client.connect(self.server_endpoint)
                     self.poll.register(self.client, zmq.POLLIN)
-                    self.client.send(serialized)
+                    self.client.send_multipart(message)
 
         return rc
 
@@ -153,9 +155,10 @@ RESOLUTION = (640,480)
 FPS = 16
 MIN_AREA = 5000
 DELTA_THRESHOLD = 5
+CAMERA_ID = 1
 
 
-send_over_lan = SendPictureToCentral()
+send_over_lan = SendPictureToCentral(CAMERA_ID)
 
 # camera = PiCamera()
 with PiCamera() as camera:
