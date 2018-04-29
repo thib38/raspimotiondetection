@@ -65,18 +65,12 @@ class SendPictureToCentral:
 
         return
 
-    def send_numpy_bgr(self,image_numpy_bgr):
-        """
-        send serialized with pickle image to server
-        embedded retries mechanism in case of network issue
-
-        :param image_numpy_bgr: variable name is self explanatory
-        :return: True if sending OK False otherwise
+    def senf_multipart_message(self, message):
         """
 
-        serialized = pickle.dumps(image_numpy_bgr)
-        message = [bytes(self.camera_id), serialized]
-        # TODO replace pickle with JSON as pickle is unsafe
+        :param message: List containing already serialized objects as zmq accepts only bytes
+        :return: True if succesful False otherwise
+        """
 
         # reopen connection if last call left it dropped
         if self.connection_dropped:
@@ -125,6 +119,24 @@ class SendPictureToCentral:
                     self.client.send_multipart(message)
 
         return rc
+
+    def send_numpy_bgr(self,image_numpy_bgr):
+        """
+        send serialized with pickle image to server
+        embedded retries mechanism in case of network issue
+
+        :param image_numpy_bgr: variable name is self explanatory
+        :return: True if sending OK False otherwise
+        """
+
+        serialized = pickle.dumps(image_numpy_bgr)
+        message = [bytes(self.camera_id), serialized]
+        # TODO replace pickle with JSON as pickle is unsafe
+
+        return self.senf_multipart_message(message)
+
+
+
 
 
 
@@ -176,7 +188,7 @@ with PiCamera() as camera:
 
     # capture frames from the camera
     for f in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
-        print("beg of loop")
+        print("frame captured")
         # grab the raw NumPy array representing the image and initialize
         # the timestamp and occupied/unoccupied text
         frame = f.array
@@ -225,12 +237,13 @@ with PiCamera() as camera:
 
             # draw the text and timestamp on the frame
             ts = timestamp.strftime("%A %d %B %Y %I:%M:%S%p")
-            cv2.putText(frame, "Room Status: {}".format(text), (10, 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-            cv2.putText(frame, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+            # cv2.putText(frame, "Room Status: {}".format(text), (10, 20),
+            #             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            # cv2.putText(frame, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+            #             0.35, (0, 0, 255), 1)
+            cv2.putText(frame, ts, (10, 20), cv2.FONT_HERSHEY_SIMPLEX,
                         0.35, (0, 0, 255), 1)
 
-            print(ts)
             handle_frame(frame, ts.replace(" ","_").replace(":","_"))
 
         rawCapture.truncate(0)  # clear buffer before next iteration
