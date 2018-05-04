@@ -10,7 +10,7 @@ import pickle
 
 context = zmq.Context()
 socket = context.socket(zmq.REP)
-socket.bind("tcp://*:5555")
+ socket.bind("tcp://*:5555")
 print("server binded on port 5555")
 
 while True:
